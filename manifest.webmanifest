@@ -1,0 +1,17 @@
+{
+  "name": "펫플즈 V.I.B 앰버서더",
+  "short_name": "V.I.B",
+  "description": "펫플즈 V.I.B 앰버서더 전용 앱 — 제품 신청·포스팅 등록·문의·성과",
+  "lang": "ko",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f5f3fa",
+  "theme_color": "#1b1530",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}
