@@ -454,32 +454,84 @@ function vPost() {
   }
 }
 
+function loadPostcode(cb) {
+  if (window.daum && daum.Postcode) return cb();
+  var sc = document.createElement('script');
+  sc.src = ['https:', '', 't1.daumcdn.net', 'mapjsapi', 'bundle', 'postcode', 'prod', 'postcode.v2.js'].join('/');
+  sc.onload = cb;
+  sc.onerror = function () { toast('주소 검색을 불러오지 못했어요. 주소를 직접 적어 주세요.'); };
+  document.head.appendChild(sc);
+}
+function addrSearch(done) {
+  var el = document.createElement('div');
+  el.className = 'sheet';
+  el.innerHTML = '<div class="box" style="height:90%;display:flex;flex-direction:column"><div class="row"><h3 style="margin:0">주소 검색</h3><span class="sp"></span>' +
+    '<button class="btn sm sub" id="pcClose">닫기</button></div><div class="muted" style="margin:6px 0">도로명·건물명·동 이름으로 찾아 고르면 우편번호가 자동으로 들어가요.</div>' +
+    '<div id="pcWrap" style="flex:1;min-height:420px;background:#fff;border-radius:12px;overflow:hidden"></div></div>';
+  document.body.appendChild(el);
+  var close = function () { el.remove(); };
+  $('#pcClose').onclick = close;
+  loadPostcode(function () {
+    new daum.Postcode({
+      oncomplete: function (x) {
+        var road = x.roadAddress || x.jibunAddress || x.address || '';
+        close();
+        done({zip: x.zonecode || '', addr: road + (x.buildingName ? ' (' + x.buildingName + ')' : '')});
+      },
+      width: '100%', height: '100%'
+    }).embed($('#pcWrap'));
+  });
+}
+function addrBox(prefix, zip, addr) {
+  return '<div class="row" style="flex-wrap:nowrap;margin-bottom:6px"><input class="in" id="' + prefix + 'zip" readonly placeholder="우편번호 (자동)" value="' + esc(zip || '') + '" style="width:140px;flex:0 0 140px;background:#f6f4fa">' +
+    '<button class="btn sm" id="' + prefix + 'find" style="white-space:nowrap">🔍 주소 검색</button></div>' +
+    '<textarea class="in" id="' + prefix + 'addr" style="min-height:70px" placeholder="[주소 검색]으로 고른 뒤 동·호수를 이어서 적어 주세요">' + esc(addr || '') + '</textarea>';
+}
+function bindAddrBox(prefix, st) {
+  var ta = $('#' + prefix + 'addr'), zb = $('#' + prefix + 'zip');
+  $('#' + prefix + 'find').onclick = function () {
+    addrSearch(function (x) {
+      st.zip = x.zip; st.picked = x.addr; st.addr = x.addr + ' ';
+      zb.value = x.zip; ta.value = st.addr; ta.focus();
+      try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {}
+      toast('동·호수가 있으면 이어서 적어 주세요.');
+    });
+  };
+  ta.oninput = function () {
+    st.addr = ta.value;
+    if (st.zip && st.picked && ta.value.indexOf(st.picked) !== 0) { st.zip = ''; st.picked = ''; zb.value = ''; }
+  };
+}
+
 function vReq() {
   var d = S.d, r = S.req;
   if (!r.product) r.product = d.st.products[0] || '';
+  if (r.addr == null) { r.addr = d.me.addr || ''; r.zip = d.me.zip || ''; r.picked = r.zip ? r.addr : ''; }
   var h = '<div class="card' + (S.ro ? ' hide' : '') + '"><h3>제품 신청</h3><div class="muted">반려묘가 직접 쓰는 용도로만 신청해 주세요. (중고 거래·재판매·양도 금지)</div>' +
     '<label>제품</label><div class="prod">' + d.st.products.map(function (p) { return '<button data-p="' + esc(p) + '" class="' + (r.product === p ? 'on' : '') + '">' + esc(p) + '</button>'; }).join('') + '</div>' +
     '<label>수량</label><div class="step"><button id="qm">−</button><input id="qty" inputmode="numeric" value="' + r.qty + '"><button id="qp">+</button></div>' +
-    '<label>받을 주소</label><textarea class="in" id="raddr" style="min-height:70px">' + esc(r.addr != null ? r.addr : d.me.addr) + '</textarea>' +
+    '<label>받을 주소</label>' + addrBox('r', r.zip, r.addr) +
     '<label style="display:flex;align-items:center;gap:8px;color:var(--ink)"><input type="checkbox" id="rsave"> 이 주소를 기본 배송지로 저장</label>' +
     '<label>요청 사항 (선택)</label><input class="in" id="rmemo" placeholder="예: 문 앞에 놓아 주세요">' +
     '<button class="btn" id="rsend">신청하기</button></div>';
   h += '<div class="card"><h3>신청 내역</h3>' + (d.reqs.length ? d.reqs.map(function (x) {
     return '<div class="item' + (x.pending ? ' pend' : '') + '"><div class="row"><span class="t">' + esc(x.product) + ' × ' + x.qty + '</span><span class="sp"></span>' +
       (x.pending ? '<span class="badge">신청 중…</span>' : x.sentDate ? '<span class="badge ok">발송 완료 ' + md(x.sentDate) + '</span>' : '<span class="badge warn">발송 준비 중</span>') +
-      '</div><div class="muted">' + esc(x.reqDate) + (x.memo ? ' · ' + esc(x.memo) : '') + '</div></div>';
+      '</div><div class="muted">' + esc(x.reqDate) + (x.memo ? ' · ' + esc(x.memo) : '') + '</div>' +
+      (x.addr ? '<div class="muted" style="font-size:12px">' + (x.zip ? '[' + esc(x.zip) + '] ' : '') + esc(x.addr) + '</div>' : '') + '</div>';
   }).join('') : '<div class="empty">신청 내역이 없어요.</div>') + '</div>';
   $('#view').innerHTML = h;
+  if (!S.ro) bindAddrBox('r', r);
   document.querySelectorAll('[data-p]').forEach(function (b) { b.onclick = function () { r.product = b.dataset.p; r.addr = $('#raddr').value; r.qty = +$('#qty').value || 1; vReq(); }; });
   var setQ = function (n) { r.qty = Math.max(1, Math.min(30, n)); $('#qty').value = r.qty; };
   $('#qm').onclick = function () { setQ((+$('#qty').value || 1) - 1); };
   $('#qp').onclick = function () { setQ((+$('#qty').value || 1) + 1); };
   $('#qty').onchange = function () { setQ(+$('#qty').value || 1); };
   $('#rsend').onclick = function () {
-    var f = {product: r.product, qty: +$('#qty').value || 1, addr: $('#raddr').value.trim(), memo: $('#rmemo').value.trim(), saveAddr: $('#rsave').checked};
+    var f = {product: r.product, qty: +$('#qty').value || 1, addr: $('#raddr').value.trim(), zip: r.zip || '', memo: $('#rmemo').value.trim(), saveAddr: $('#rsave').checked};
     if (f.addr.length < 5) { toast('받을 주소를 넣어 주세요.'); return; }
     var temp = {id: 'tmp', product: f.product, qty: f.qty, reqDate: S.d.today, memo: f.memo, pending: true};
-    S.d.reqs.unshift(temp); r.qty = 1; r.addr = null; vReq();
+    S.d.reqs.unshift(temp); r.qty = 1; r.addr = null; r.zip = ''; r.picked = ''; vReq();
     call('appRequestProduct', S.t, f).then(function (x) { setData(x); toast('신청했어요. 발송되면 여기에 표시돼요.'); if (S.tab === 'req') vReq(); })
       .catch(function (e) { S.d.reqs = S.d.reqs.filter(function (p) { return p !== temp; }); vReq(); toast(e.message); });
   };
@@ -568,7 +620,7 @@ function renderProfile() {
     '<div class="card" style="margin-top:12px"><div class="row"><b>' + esc(m.nick) + '</b><span class="muted">' + esc(m.name) + '</span></div>' +
     '<div class="muted">아이디 ' + esc(m.loginId) + ' · 블로그 ' + esc(m.blog) + '</div><div class="muted">활동 기간 ' + esc(m.start) + ' ~ ' + esc(m.end) + '</div>' +
     '<label>연락처</label><input class="in" id="fphone" inputmode="tel" value="' + esc(m.phone) + '">' +
-    '<label>기본 배송지</label><textarea class="in" id="faddr" style="min-height:70px">' + esc(m.addr) + '</textarea>' +
+    '<label>기본 배송지</label>' + addrBox('f', m.zip, m.addr) +
     '<button class="btn" id="fsave">저장</button></div>' +
     '<button class="btn line" id="fpw">비밀번호 바꾸기</button><button class="btn sub" id="fout">로그아웃</button>' +
     '<div class="muted" style="text-align:center;margin-top:14px">내 정보는 본인과 담당자만 볼 수 있어요.</div></div>';
@@ -576,9 +628,11 @@ function renderProfile() {
   var close = function () { el.remove(); };
   el.onclick = function (e) { if (e.target === el) close(); };
   $('#xclose').onclick = close;
+  var pf = {zip: m.zip || '', addr: m.addr || '', picked: m.zip ? (m.addr || '') : ''};
+  bindAddrBox('f', pf);
   $('#fsave').onclick = function () {
     $('#fsave').disabled = true;
-    call('appUpdateProfile', S.t, {phone: $('#fphone').value, addr: $('#faddr').value}).then(function (x) { setData(x); toast('저장했어요.'); close(); renderMain(); })
+    call('appUpdateProfile', S.t, {phone: $('#fphone').value, addr: $('#faddr').value, zip: pf.zip || ''}).then(function (x) { setData(x); toast('저장했어요.'); close(); renderMain(); })
       .catch(function (e) { toast(e.message); $('#fsave').disabled = false; });
   };
   $('#fpw').onclick = function () { close(); renderChangePw(false); };
@@ -727,7 +781,7 @@ function vAdmReq() {
   $('#view').innerHTML = '<div class="card"><h3>제품 신청 (발송 전 먼저)</h3>' + (d.reqs.length ? d.reqs.map(function (r) {
     return '<div class="item"><div class="row"><b>' + esc(r.nick) + '</b><span class="t">' + esc(r.product) + ' × ' + r.qty + '</span><span class="sp"></span>' +
       (r.sentDate ? '<span class="badge ok">발송 ' + md(r.sentDate) + '</span>' : '<button class="btn sm" data-sent="' + esc(r.id) + '">발송 완료</button>') + '</div>' +
-      '<div class="muted">' + esc(r.reqDate) + ' · ' + esc(r.addr) + (r.memo ? ' · ' + esc(r.memo) : '') + '</div></div>';
+      '<div class="muted">' + esc(r.reqDate) + ' · ' + (r.zip ? '[' + esc(r.zip) + '] ' : '') + esc(r.addr) + (r.memo ? ' · ' + esc(r.memo) : '') + '</div></div>';
   }).join('') : '<div class="empty">신청이 없어요.</div>') + '</div>';
   document.querySelectorAll('[data-sent]').forEach(function (b) {
     b.onclick = function () {

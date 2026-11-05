@@ -1,5 +1,5 @@
 // 펫플즈 V.I.B 앱 — 앱 파일을 휴대폰에 저장해 두고 바로 열기 (서버 데이터는 저장하지 않음)
-const CACHE = 'vib-43be968044';
+const CACHE = 'vib-7ff1c6e453';
 const FILES = ['./', 'index.html', 'config.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-180.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {
