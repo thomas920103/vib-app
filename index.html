@@ -105,6 +105,14 @@ textarea.in{min-height:96px;resize:vertical}
 .today .t1{flex:0 0 auto;background:var(--bg);border-radius:12px;padding:8px 12px;font-size:13px}
 .today .t1 b{display:block;font-size:14px}
 .pend{opacity:.6}
+.prow{display:flex;align-items:center;gap:8px;border:1.5px solid var(--line);border-radius:12px;padding:8px 10px;margin-top:8px;background:#fff}
+.prow.on{border-color:var(--pur);background:var(--pur2)}
+.prow .pn{flex:1;font-weight:600;font-size:14px}
+.step.sm{width:auto}
+.step.sm button{width:40px;height:40px;font-size:20px}
+.step.sm button:disabled{opacity:.3}
+.step.sm input{width:40px;font-size:16px}
+.pickbox{background:#faf7ff;border:1.5px solid var(--pur);border-radius:14px;padding:12px;margin-top:12px}
 .vbars{display:flex;align-items:flex-end;gap:3px;height:96px;margin-top:10px}
 .vbars .c{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
 .vbars .c i{display:block;width:100%;background:#c4b5fd;border-radius:4px 4px 0 0;min-height:2px}
@@ -173,7 +181,7 @@ function setData(d) {
   if (!d) return;
   if (S.ro) { S.d = d; return; }
   if (d.admin) { var ad = {}; for (var k in d) if (k !== 'ok' && k !== 'token' && k !== 'mustChange') ad[k] = d[k]; S.d = ad; lsSet(KEY_D, JSON.stringify(ad)); return; }
-  var keep = {me: d.me, today: d.today, st: d.st, posts: d.posts, reqs: d.reqs, inq: d.inq, stats: d.stats};
+  var keep = {me: d.me, today: d.today, st: d.st, posts: d.posts, reqs: d.reqs, inq: d.inq, stats: d.stats, pick: d.pick || null, pickLeft: d.pickLeft || [], notice: d.notice || null};
   S.d = keep;
   lsSet(KEY_D, JSON.stringify(keep));
 }
@@ -183,6 +191,20 @@ function goKeep() {}
 var INSTALL = {prompt: null};
 window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); INSTALL.prompt = e; var b = document.getElementById('instBtn'); if (b) b.classList.remove('hide'); });
 window.addEventListener('appinstalled', function () { INSTALL.prompt = null; toast('앱을 설치했어요. 홈 화면의 아이콘으로 열어 주세요.'); renderMainSafe(); });
+function showNotice() {
+  var n = S.d && S.d.notice;
+  if (!n || S.ro || S.noticeShown || $('.sheet') || lsGet('vib.notice.' + n.id)) return;
+  S.noticeShown = true;
+  var el = document.createElement('div');
+  el.className = 'sheet';
+  el.style.alignItems = 'center';
+  el.innerHTML = '<div class="box" style="border-radius:20px;margin:0 14px;max-width:440px"><h3 style="margin:4px 0 10px;font-size:18px">' + esc(n.title) + '</h3>' +
+    '<div class="bubble" style="white-space:pre-wrap;font-size:15px;line-height:1.7">' + esc(n.body) + '</div>' +
+    '<label style="display:flex;align-items:center;gap:8px;color:var(--ink);font-size:14px;margin-top:14px"><input type="checkbox" id="nNo"> 다시 보지 않기</label>' +
+    '<button class="btn" id="nOk">확인</button></div>';
+  document.body.appendChild(el);
+  $('#nOk').onclick = function () { if ($('#nNo').checked) lsSet('vib.notice.' + n.id, '1'); el.remove(); };
+}
 function renderMainSafe() { if (S.t && S.d) renderMain(); else if (!S.t) renderLogin(); }
 function standalone() { return (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true; }
 function deviceInfo() {
@@ -286,6 +308,7 @@ function renderMain() {
   if (S.ro) { $('#meBtn').textContent = '← 관리자로'; $('.top .logo').innerHTML = '👀 <b>' + esc(S.d.me.nick) + '</b> 화면 보기'; }
   ({home: vHome, post: vPost, req: vReq, perf: vPerf, inq: vInq, guide: vGuide})[S.tab]();
   bindInstall();
+  showNotice();
 }
 
 function contractInfo() {
@@ -316,6 +339,8 @@ function vHome() {
     (todayHits.length ? '<div class="today" style="margin-top:6px">' + todayHits.map(function (x) {
       return '<div class="t1"><b>' + esc(x.kw) + '</b>' + esc(shortArea(x.area)) + ' ' + x.rank + '위' + (x.bonus ? ' ⭐' : '') + '</div>';
     }).join('') + '</div>' : (s.lastSearch && s.lastSearch.slice(0, 10) === d.today ? '<div class="muted">오늘은 노출된 글이 없어요.</div>' : '')) + '</div>';
+  if (d.pick && (d.pickLeft || []).length) h += '<div class="card" data-go="req" style="cursor:pointer;border:1.5px solid var(--pur)"><div class="row"><b>🎁 ' + (+d.pick.month.slice(5)) + '월 지정 제품</b><span class="sp"></span><span class="badge warn">신청 전</span></div>' +
+    '<div class="muted" style="margin-top:4px">' + esc(d.pickLeft.join(', ')) + ' — 제품 신청에서 함께 신청해 주세요 ›</div></div>';
   if (na || waitReq || waitInq) h += '<div class="card"><div class="chips">' +
     (na ? '<span class="chip on" data-go="inq">💬 새 답변 ' + na + '건</span>' : '') +
     (waitReq ? '<span class="chip" data-go="req">📦 발송 대기 ' + waitReq + '건</span>' : '') +
@@ -504,36 +529,62 @@ function bindAddrBox(prefix, st) {
 }
 
 function vReq() {
-  var d = S.d, r = S.req;
-  if (!r.product) r.product = d.st.products[0] || '';
+  var d = S.d, r = S.req, pk = d.pick, left = d.pickLeft || [];
   if (r.addr == null) { r.addr = d.me.addr || ''; r.zip = d.me.zip || ''; r.picked = r.zip ? r.addr : ''; }
-  var h = '<div class="card' + (S.ro ? ' hide' : '') + '"><h3>제품 신청</h3><div class="muted">반려묘가 직접 쓰는 용도로만 신청해 주세요. (중고 거래·재판매·양도 금지)</div>' +
-    '<label>제품</label><div class="prod">' + d.st.products.map(function (p) { return '<button data-p="' + esc(p) + '" class="' + (r.product === p ? 'on' : '') + '">' + esc(p) + '</button>'; }).join('') + '</div>' +
-    '<label>수량</label><div class="step"><button id="qm">−</button><input id="qty" inputmode="numeric" value="' + r.qty + '"><button id="qp">+</button></div>' +
+  r.q = r.q || {};
+  var base = {};
+  if (pk) pk.products.forEach(function (p) { base[p.name] = p.qty; });
+  var qOf = function (n, req) { return r.q[n] != null ? r.q[n] : (req ? (base[n] || 1) : 0); };
+  var extras = d.st.products.filter(function (n) { return left.indexOf(n) < 0; });
+  var row = function (n, req) {
+    var q = qOf(n, req);
+    return '<div class="prow' + (q > 0 ? ' on' : '') + '"><div class="pn">' + (req ? '<span class="badge pur">필수</span> ' : '') + esc(n) + '</div>' +
+      '<div class="step sm"><button data-dq="' + esc(n) + '" data-d="-1" data-req="' + (req ? 1 : 0) + '"' + (q <= (req ? 1 : 0) ? ' disabled' : '') + '>−</button>' +
+      '<input value="' + q + '" readonly><button data-dq="' + esc(n) + '" data-d="1" data-req="' + (req ? 1 : 0) + '"' + (q >= 30 ? ' disabled' : '') + '>+</button></div></div>';
+  };
+  var h = '<div class="card' + (S.ro ? ' hide' : '') + '"><h3>제품 신청</h3><div class="muted">반려묘가 직접 쓰는 용도로만 신청해 주세요. (중고 거래·재판매·양도 금지)</div>';
+  if (pk) {
+    h += '<div class="pickbox"><div class="row"><b>🎁 ' + (+pk.month.slice(5)) + '월 지정 제품</b><span class="sp"></span>' +
+      (left.length ? '<span class="badge warn">필수</span>' : '<span class="badge ok">신청 완료 ✓</span>') + '</div>' +
+      (pk.note ? '<div class="muted" style="margin-top:4px">' + esc(pk.note) + '</div>' : '') +
+      (left.length ? '<div class="muted" style="margin-top:4px">이번 달 체험 제품이에요. 신청할 때 꼭 함께 신청돼요.</div>' + left.map(function (n) { return row(n, true); }).join('')
+        : '<div class="muted" style="margin-top:6px">이번 달 지정 제품은 이미 신청했어요. 더 필요한 제품은 아래에서 추가로 신청해 주세요.</div>') + '</div>' +
+      '<label>➕ 추가로 필요한 제품 (선택)</label>';
+  } else h += '<label>제품과 수량</label>';
+  h += extras.map(function (n) { return row(n, false); }).join('') +
     '<label>받을 주소</label>' + addrBox('r', r.zip, r.addr) +
     '<label style="display:flex;align-items:center;gap:8px;color:var(--ink)"><input type="checkbox" id="rsave"> 이 주소를 기본 배송지로 저장</label>' +
-    '<label>요청 사항 (선택)</label><input class="in" id="rmemo" placeholder="예: 문 앞에 놓아 주세요">' +
+    '<label>요청 사항 (선택)</label><input class="in" id="rmemo" placeholder="예: 문 앞에 놓아 주세요" value="' + esc(r.memo || '') + '">' +
     '<button class="btn" id="rsend">신청하기</button></div>';
   h += '<div class="card"><h3>신청 내역</h3>' + (d.reqs.length ? d.reqs.map(function (x) {
-    return '<div class="item' + (x.pending ? ' pend' : '') + '"><div class="row"><span class="t">' + esc(x.product) + ' × ' + x.qty + '</span><span class="sp"></span>' +
+    return '<div class="item' + (x.pending ? ' pend' : '') + '"><div class="row"><span class="t">' + esc(x.product) + ' × ' + x.qty + '</span>' +
+      (x.kind === 'pick' ? '<span class="badge pur">지정</span>' : x.kind === 'extra' ? '<span class="badge">추가</span>' : '') + '<span class="sp"></span>' +
       (x.pending ? '<span class="badge">신청 중…</span>' : x.sentDate ? '<span class="badge ok">발송 완료 ' + md(x.sentDate) + '</span>' : '<span class="badge warn">발송 준비 중</span>') +
       '</div><div class="muted">' + esc(x.reqDate) + (x.memo ? ' · ' + esc(x.memo) : '') + '</div>' +
       (x.addr ? '<div class="muted" style="font-size:12px">' + (x.zip ? '[' + esc(x.zip) + '] ' : '') + esc(x.addr) + '</div>' : '') + '</div>';
   }).join('') : '<div class="empty">신청 내역이 없어요.</div>') + '</div>';
   $('#view').innerHTML = h;
-  if (!S.ro) bindAddrBox('r', r);
-  document.querySelectorAll('[data-p]').forEach(function (b) { b.onclick = function () { r.product = b.dataset.p; r.addr = $('#raddr').value; r.qty = +$('#qty').value || 1; vReq(); }; });
-  var setQ = function (n) { r.qty = Math.max(1, Math.min(30, n)); $('#qty').value = r.qty; };
-  $('#qm').onclick = function () { setQ((+$('#qty').value || 1) - 1); };
-  $('#qp').onclick = function () { setQ((+$('#qty').value || 1) + 1); };
-  $('#qty').onchange = function () { setQ(+$('#qty').value || 1); };
+  if (S.ro) return;
+  bindAddrBox('r', r);
+  var keepInputs = function () { r.addr = $('#raddr').value; r.memo = $('#rmemo').value; };
+  document.querySelectorAll('[data-dq]').forEach(function (b) {
+    b.onclick = function () {
+      var n = b.dataset.dq, req = b.dataset.req === '1';
+      r.q[n] = Math.max(req ? 1 : 0, Math.min(30, qOf(n, req) + (+b.dataset.d)));
+      keepInputs(); vReq();
+    };
+  });
   $('#rsend').onclick = function () {
-    var f = {product: r.product, qty: +$('#qty').value || 1, addr: $('#raddr').value.trim(), zip: r.zip || '', memo: $('#rmemo').value.trim(), saveAddr: $('#rsave').checked};
+    keepInputs();
+    var items = left.map(function (n) { return {product: n, qty: qOf(n, true), kind: 'pick'}; })
+      .concat(extras.filter(function (n) { return qOf(n, false) > 0; }).map(function (n) { return {product: n, qty: qOf(n, false), kind: pk ? 'extra' : ''}; }));
+    if (!items.length) { toast('신청할 제품의 수량을 골라 주세요.'); return; }
+    var f = {items: items, product: items[0].product, qty: items[0].qty, addr: r.addr.trim(), zip: r.zip || '', memo: (r.memo || '').trim(), saveAddr: $('#rsave').checked};
     if (f.addr.length < 5) { toast('받을 주소를 넣어 주세요.'); return; }
-    var temp = {id: 'tmp', product: f.product, qty: f.qty, reqDate: S.d.today, memo: f.memo, pending: true};
-    S.d.reqs.unshift(temp); r.qty = 1; r.addr = null; r.zip = ''; r.picked = ''; vReq();
+    var temps = items.map(function (it) { return {id: 'tmp', product: it.product, qty: it.qty, kind: it.kind, reqDate: S.d.today, memo: f.memo, pending: true}; });
+    S.d.reqs = temps.concat(S.d.reqs); r.q = {}; r.memo = ''; r.addr = null; r.zip = ''; r.picked = ''; vReq();
     call('appRequestProduct', S.t, f).then(function (x) { setData(x); toast('신청했어요. 발송되면 여기에 표시돼요.'); if (S.tab === 'req') vReq(); })
-      .catch(function (e) { S.d.reqs = S.d.reqs.filter(function (p) { return p !== temp; }); vReq(); toast(e.message); });
+      .catch(function (e) { S.d.reqs = S.d.reqs.filter(function (p) { return temps.indexOf(p) < 0; }); vReq(); toast(e.message); });
   };
 }
 
@@ -781,7 +832,7 @@ function vAdmReq() {
   $('#view').innerHTML = '<div class="card"><h3>제품 신청 (발송 전 먼저)</h3>' + (d.reqs.length ? d.reqs.map(function (r) {
     return '<div class="item"><div class="row"><b>' + esc(r.nick) + '</b><span class="t">' + esc(r.product) + ' × ' + r.qty + '</span><span class="sp"></span>' +
       (r.sentDate ? '<span class="badge ok">발송 ' + md(r.sentDate) + '</span>' : '<button class="btn sm" data-sent="' + esc(r.id) + '">발송 완료</button>') + '</div>' +
-      '<div class="muted">' + esc(r.reqDate) + ' · ' + (r.zip ? '[' + esc(r.zip) + '] ' : '') + esc(r.addr) + (r.memo ? ' · ' + esc(r.memo) : '') + '</div></div>';
+      '<div class="muted">' + (r.kind === 'pick' ? '<span class="badge pur">지정</span> ' : r.kind === 'extra' ? '<span class="badge">추가</span> ' : '') + esc(r.reqDate) + ' · ' + (r.zip ? '[' + esc(r.zip) + '] ' : '') + esc(r.addr) + (r.memo ? ' · ' + esc(r.memo) : '') + '</div></div>';
   }).join('') : '<div class="empty">신청이 없어요.</div>') + '</div>';
   document.querySelectorAll('[data-sent]').forEach(function (b) {
     b.onclick = function () {
