@@ -633,7 +633,7 @@ function vInq() {
   h += '<div class="card"><h3>문의 내역</h3>' + (d.inq.length ? d.inq.map(function (q) {
     var fresh = adminCount(q) > (+seen[q.id] || 0);
     return '<div class="qa' + (q.pending ? ' pend' : '') + '"><div class="row"><span class="badge">' + esc(q.kind) + '</span><span class="muted">' + esc(q.date) + '</span><span class="sp"></span>' +
-      (q.pending ? '<span class="badge">보내는 중…</span>' : q.waiting ? '<span class="badge warn">답변 대기</span>' : '<span class="badge ok">답변 완료' + (fresh ? ' · 새 답변' : '') + '</span>') + '</div>' +
+      (q.pending ? '<span class="badge">보내는 중…</span>' : q.waiting ? '<span class="badge warn">답변 대기</span>' : q.closed && !fresh ? '<span class="badge ok">확인 완료</span>' : '<span class="badge ok">답변 완료' + (fresh ? ' · 새 답변' : '') + '</span>') + '</div>' +
       threadHtml(q, false) +
       (q.pending || S.ro ? '' : '<div class="btns"><input class="in" data-rep="' + esc(q.id) + '" placeholder="이어서 물어보기" style="padding:9px 12px;font-size:15px"><button class="btn sm" data-rsend="' + esc(q.id) + '">보내기</button></div>') + '</div>';
   }).join('') : '<div class="empty">문의 내역이 없어요.</div>') + '</div>';
@@ -812,11 +812,20 @@ function vAdmInq() {
     '<span class="chip ' + (f === 'wait' ? 'on' : '') + '" data-qf="wait">답변 대기 ' + wait + '</span><span class="chip ' + (f === 'all' ? 'on' : '') + '" data-qf="all">전체 ' + d.inq.length + '</span></div></div>' +
     '<div class="card">' + (list.length ? list.map(function (q) {
       return '<div class="qa"><div class="row"><b>' + esc(q.nick) + '</b><span class="badge">' + esc(q.kind) + '</span><span class="muted">' + esc(q.date) + '</span><span class="sp"></span>' +
-        (q.waiting ? '<span class="badge warn">답변 대기</span>' : '<span class="badge ok">답변 완료</span>') + '</div>' + threadHtml(q, true) +
+        (q.waiting ? '<span class="badge warn">답변 대기</span>' : q.closed ? '<span class="badge">답글 없이 완료</span>' : '<span class="badge ok">답변 완료</span>') + '</div>' + threadHtml(q, true) +
         '<textarea class="in" data-ans="' + esc(q.id) + '" style="min-height:64px;margin-top:8px" placeholder="답글 입력"></textarea>' +
-        '<button class="btn sm" data-save="' + esc(q.id) + '" style="margin-top:6px">답글 보내기</button></div>';
+        '<div class="btns"><button class="btn sm" data-save="' + esc(q.id) + '">답글 보내기</button>' +
+        (q.waiting ? '<button class="btn sm line" data-close="' + esc(q.id) + '">답글 없이 완료</button>' : q.closed ? '<button class="btn sm line" data-reopen="' + esc(q.id) + '">다시 대기로</button>' : '') + '</div></div>';
     }).join('') : '<div class="empty">' + (f === 'wait' ? '답변 대기 중인 문의가 없어요.' : '문의가 없어요.') + '</div>') + '</div>';
   document.querySelectorAll('[data-qf]').forEach(function (c) { c.onclick = function () { S.qf = c.dataset.qf; vAdmInq(); }; });
+  document.querySelectorAll('[data-close],[data-reopen]').forEach(function (b) {
+    b.onclick = function () {
+      var on = !!b.dataset.close;
+      b.disabled = true;
+      call('appAdminClose', S.t, b.dataset.close || b.dataset.reopen, on).then(function (r) { setData(r); toast(on ? '답글 없이 완료 처리했어요.' : '다시 답변 대기로 돌렸어요.'); renderAdmin(); })
+        .catch(function (e) { toast(e.message); b.disabled = false; });
+    };
+  });
   document.querySelectorAll('[data-save]').forEach(function (b) {
     b.onclick = function () {
       var id = b.dataset.save, v = document.querySelector('[data-ans="' + id + '"]').value.trim();
