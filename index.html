@@ -531,6 +531,8 @@ function bindAddrBox(prefix, st) {
 function vReq() {
   var d = S.d, r = S.req, pk = d.pick, left = d.pickLeft || [];
   if (r.addr == null) { r.addr = d.me.addr || ''; r.zip = d.me.zip || ''; r.picked = r.zip ? r.addr : ''; }
+  if (r.name == null) r.name = d.me.name || '';
+  if (r.phone == null) r.phone = d.me.phone || '';
   r.q = r.q || {};
   var base = {};
   if (pk) pk.products.forEach(function (p) { base[p.name] = p.qty; });
@@ -552,8 +554,10 @@ function vReq() {
       '<label>➕ 추가로 필요한 제품 (선택)</label>';
   } else h += '<label>제품과 수량</label>';
   h += extras.map(function (n) { return row(n, false); }).join('') +
+    '<label>받는 분 이름</label><input class="in" id="rname" placeholder="예: 홍길동" value="' + esc(r.name || '') + '">' +
+    '<label>받는 분 연락처</label><input class="in" id="rphone" type="tel" inputmode="tel" placeholder="010-0000-0000" value="' + esc(r.phone || '') + '">' +
     '<label>받을 주소</label>' + addrBox('r', r.zip, r.addr) +
-    '<label style="display:flex;align-items:center;gap:8px;color:var(--ink)"><input type="checkbox" id="rsave"> 이 주소를 기본 배송지로 저장</label>' +
+    '<label style="display:flex;align-items:center;gap:8px;color:var(--ink)"><input type="checkbox" id="rsave"> 이 주소·연락처를 기본으로 저장</label>' +
     '<label>요청 사항 (선택)</label><input class="in" id="rmemo" placeholder="예: 문 앞에 놓아 주세요" value="' + esc(r.memo || '') + '">' +
     '<button class="btn" id="rsend">신청하기</button></div>';
   h += '<div class="card"><h3>신청 내역</h3>' + (d.reqs.length ? d.reqs.map(function (x) {
@@ -561,12 +565,13 @@ function vReq() {
       (x.kind === 'pick' ? '<span class="badge pur">지정</span>' : x.kind === 'extra' ? '<span class="badge">추가</span>' : '') + '<span class="sp"></span>' +
       (x.pending ? '<span class="badge">신청 중…</span>' : x.sentDate ? '<span class="badge ok">발송 완료 ' + md(x.sentDate) + '</span>' : '<span class="badge warn">발송 준비 중</span>') +
       '</div><div class="muted">' + esc(x.reqDate) + (x.memo ? ' · ' + esc(x.memo) : '') + '</div>' +
+      (x.name || x.phone ? '<div class="muted" style="font-size:12px">' + esc([x.name, x.phone].filter(Boolean).join(' · ')) + '</div>' : '') +
       (x.addr ? '<div class="muted" style="font-size:12px">' + (x.zip ? '[' + esc(x.zip) + '] ' : '') + esc(x.addr) + '</div>' : '') + '</div>';
   }).join('') : '<div class="empty">신청 내역이 없어요.</div>') + '</div>';
   $('#view').innerHTML = h;
   if (S.ro) return;
   bindAddrBox('r', r);
-  var keepInputs = function () { r.addr = $('#raddr').value; r.memo = $('#rmemo').value; };
+  var keepInputs = function () { r.addr = $('#raddr').value; r.memo = $('#rmemo').value; r.name = $('#rname').value; r.phone = $('#rphone').value; };
   document.querySelectorAll('[data-dq]').forEach(function (b) {
     b.onclick = function () {
       var n = b.dataset.dq, req = b.dataset.req === '1';
@@ -579,10 +584,13 @@ function vReq() {
     var items = left.map(function (n) { return {product: n, qty: qOf(n, true), kind: 'pick'}; })
       .concat(extras.filter(function (n) { return qOf(n, false) > 0; }).map(function (n) { return {product: n, qty: qOf(n, false), kind: pk ? 'extra' : ''}; }));
     if (!items.length) { toast('신청할 제품의 수량을 골라 주세요.'); return; }
-    var f = {items: items, product: items[0].product, qty: items[0].qty, addr: r.addr.trim(), zip: r.zip || '', memo: (r.memo || '').trim(), saveAddr: $('#rsave').checked};
+    var f = {items: items, product: items[0].product, qty: items[0].qty, addr: r.addr.trim(), zip: r.zip || '', memo: (r.memo || '').trim(), saveAddr: $('#rsave').checked,
+      name: (r.name || '').trim(), phone: (r.phone || '').trim()};
+    if (!f.name) { toast('받는 분 이름을 넣어 주세요.'); return; }
+    if (f.phone.replace(/[^0-9]/g, '').length < 9) { toast('받는 분 연락처를 넣어 주세요.'); return; }
     if (f.addr.length < 5) { toast('받을 주소를 넣어 주세요.'); return; }
     var temps = items.map(function (it) { return {id: 'tmp', product: it.product, qty: it.qty, kind: it.kind, reqDate: S.d.today, memo: f.memo, pending: true}; });
-    S.d.reqs = temps.concat(S.d.reqs); r.q = {}; r.memo = ''; r.addr = null; r.zip = ''; r.picked = ''; vReq();
+    S.d.reqs = temps.concat(S.d.reqs); r.q = {}; r.memo = ''; r.addr = null; r.zip = ''; r.picked = ''; r.name = null; r.phone = null; vReq();
     call('appRequestProduct', S.t, f).then(function (x) { setData(x); toast('신청했어요. 발송되면 여기에 표시돼요.'); if (S.tab === 'req') vReq(); })
       .catch(function (e) { S.d.reqs = S.d.reqs.filter(function (p) { return temps.indexOf(p) < 0; }); vReq(); toast(e.message); });
   };
@@ -841,7 +849,7 @@ function vAdmReq() {
   $('#view').innerHTML = '<div class="card"><h3>제품 신청 (발송 전 먼저)</h3>' + (d.reqs.length ? d.reqs.map(function (r) {
     return '<div class="item"><div class="row"><b>' + esc(r.nick) + '</b><span class="t">' + esc(r.product) + ' × ' + r.qty + '</span><span class="sp"></span>' +
       (r.sentDate ? '<span class="badge ok">발송 ' + md(r.sentDate) + '</span>' : '<button class="btn sm" data-sent="' + esc(r.id) + '">발송 완료</button>') + '</div>' +
-      '<div class="muted">' + (r.kind === 'pick' ? '<span class="badge pur">지정</span> ' : r.kind === 'extra' ? '<span class="badge">추가</span> ' : '') + esc(r.reqDate) + ' · ' + (r.zip ? '[' + esc(r.zip) + '] ' : '') + esc(r.addr) + (r.memo ? ' · ' + esc(r.memo) : '') + '</div></div>';
+      '<div class="muted">' + (r.kind === 'pick' ? '<span class="badge pur">지정</span> ' : r.kind === 'extra' ? '<span class="badge">추가</span> ' : '') + esc(r.reqDate) + ' · ' + (r.name || r.phone ? esc([r.name, r.phone].filter(Boolean).join(' ')) + ' · ' : '') + (r.zip ? '[' + esc(r.zip) + '] ' : '') + esc(r.addr) + (r.memo ? ' · ' + esc(r.memo) : '') + '</div></div>';
   }).join('') : '<div class="empty">신청이 없어요.</div>') + '</div>';
   document.querySelectorAll('[data-sent]').forEach(function (b) {
     b.onclick = function () {
